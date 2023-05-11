@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import plotly.graph_objects as go
 import scipy.io
+from tqdm import tqdm
+import os
 
 # ============ define relevant functions =============
 # https://github.com/benmaier/reaction-diffusion/blob/master/gray_scott.ipynb
@@ -357,19 +359,52 @@ if __name__ == "__main__":
     B_record = B.copy()[None,...]
 
     N_simulation_steps = 3000
-    for step in range(N_simulation_steps):
-        # A, B = update(A, B, DA, DB, f, k, delta_t)
-        A, B = update_rk4(A, B, DA, DB, f, k, delta_t)
+    with tqdm(total=N_simulation_steps) as pbar:
+        for step in range(N_simulation_steps):
+            # A, B = update(A, B, DA, DB, f, k, delta_t)
+            A, B = update_rk4(A, B, DA, DB, f, k, delta_t)
+            pbar.update(1)
 
-        if (step+1) % 2 == 0:
-            print(step, '\n')
-            A_record = np.concatenate((A_record, A[None, ...]), axis=0)
-            B_record = np.concatenate((B_record, B[None, ...]), axis=0)
+            if (step+1) % 2 == 0:
+                A_record = np.concatenate((A_record, A[None, ...]), axis=0)
+                B_record = np.concatenate((B_record, B[None, ...]), axis=0)
+                # Give shapes
+                pbar.set_description("A_record: %s, B_record: %s" % (str(A_record.shape), str(B_record.shape)))
+            
+    # Save data
+    A_record_shape = A_record.shape
+    B_record_shape = B_record.shape
+    
+    np.save('A_record.npy', A_record)
+    np.save('B_record.npy', B_record)
+    
+    del A_record
+    del B_record
+    
+    assert A_record_shape == B_record_shape
 
-    UV_RK4_dt05 = np.concatenate((A_record[None, ...], B_record[None, ...]), axis=0)
-    UV_RK4_dt05 = np.transpose(UV_RK4_dt05, (1,0,2,3,4)) # [3001,2,48,48,48]
+    # Create a memory-mapped file
+    output_shape = (2, *A_record_shape)
+    output_file = np.memmap('output.npy', dtype=np.float32, mode='w+', shape=output_shape)
 
-    scipy.io.savemat('./data/3DGS_IC1_2x1501x48x48x48.mat', {'uv': UV_RK4_dt05[:, :, :, : ,:]})
+    # Load and copy A_record
+    A_record = np.load('A_record.npy', mmap_mode='r')
+    output_file[0] = A_record
+    del A_record
+
+    # Load and copy B_record
+    B_record = np.load('B_record.npy', mmap_mode='r')
+    output_file[1] = B_record
+    del B_record   
+    
+    UV_RK4_dt05 = np.transpose(output_file, (1,0,2,3,4)) # [1501,2,48,48,48]
+
+    scipy.io.savemat('3DGS_IC1_2x1501x48x48x48.mat', {'uv': UV_RK4_dt05[:, :, :, : ,:]})
+    
+    # Delete A_record.npy, B_record.npy and output.npy
+    os.remove('A_record.npy')
+    os.remove('B_record.npy')
+    os.remove('output.npy')
 
 
 

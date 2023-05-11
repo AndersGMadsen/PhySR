@@ -4,6 +4,7 @@ import numpy as np
 import scipy.io as scio
 import os
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 torch.manual_seed(1) 
@@ -170,7 +171,7 @@ def update_rk4(A0, B0, DA, DB, f, k, delta_t, dx):
     return A, B
 
 
-def get_initial_A_and_B(N, random_influence = 0.2):
+def get_initial_A_and_B(N, init_dis, random_influence = 0.2):
     """get the initial chemical concentrations"""
     # get initial homogeneous concentrations
     A = (1-random_influence) * np.ones((N,N))
@@ -184,29 +185,35 @@ def get_initial_A_and_B(N, random_influence = 0.2):
     N1, N2, N3 = N//4-4, N//2, 3*N//4
     r = int(N/10.0)
     
-    # initial disturbance 1  
-    A[N1-r:N1+r, N1-r:N1+r] = 0.50
-    B[N1-r:N1+r, N1-r:N1+r] = 0.25
+    if 1 in init_dis:
+        # initial disturbance 1  
+        A[N1-r:N1+r, N1-r:N1+r] = 0.50
+        B[N1-r:N1+r, N1-r:N1+r] = 0.25
 
-#    # initial disturbance 2
-#    A[N1-r:N1+r, N3-r:N3+r] = 0.50
-#    B[N1-r:N1+r, N3-r:N3+r] = 0.25
-#
-#    # initial disturbance 3
-#    A[N3-r:N3+r, N3-r:N3+r] = 0.50
-#    B[N3-r:N3+r, N3-r:N3+r] = 0.25
-#
-#    # initial disturbance 4
-#    A[N3-r:N3+r, N1-r:N1+r] = 0.50
-#    B[N3-r:N3+r, N1-r:N1+r] = 0.25
+    if 2 in init_dis:
+        # initial disturbance 2
+        A[N1-r:N1+r, N3-r:N3+r] = 0.50
+        B[N1-r:N1+r, N3-r:N3+r] = 0.25
 
-    # initial disturbance 5
-    A[N2-r:N2+r, N2-r:N2+r] = 0.50
-    B[N2-r:N2+r, N2-r:N2+r] = 0.25
-#
-#    # initial disturbance 6
-#    A[N2-r:N2+r, N3-r:N3+r] = 0.50
-#    B[N2-r:N2+r, N3-r:N3+r] = 0.25
+    if 3 in init_dis:
+        # initial disturbance 3
+        A[N3-r:N3+r, N3-r:N3+r] = 0.50
+        B[N3-r:N3+r, N3-r:N3+r] = 0.25
+
+    if 4 in init_dis:
+        # initial disturbance 4
+        A[N3-r:N3+r, N1-r:N1+r] = 0.50
+        B[N3-r:N3+r, N1-r:N1+r] = 0.25
+
+    if 5 in init_dis:
+        # initial disturbance 5
+        A[N2-r:N2+r, N2-r:N2+r] = 0.50
+        B[N2-r:N2+r, N2-r:N2+r] = 0.25
+
+    if 6 in init_dis:
+        # initial disturbance 6
+        A[N2-r:N2+r, N3-r:N3+r] = 0.50
+        B[N2-r:N2+r, N3-r:N3+r] = 0.25
 
     return A, B
 
@@ -244,7 +251,7 @@ def postProcess(output, N, xmin, xmax, ymin, ymax, num, batch, save_path):
     fig.colorbar(cf, ax=ax[1], extend='both')
 
     # plt.draw()
-    plt.savefig(save_path + '/uv_[b=%d][t=%d].png'%(batch, num))
+    plt.savefig(save_path + 'uv_[b=%d][t=%d].png'%(batch, num))
     plt.close('all')
 
 if __name__ == '__main__':
@@ -253,50 +260,104 @@ if __name__ == '__main__':
     # dt should be 1/2 of dx
         
     # Diffusion coefficients
-    DA = 0.16 #2*10**-5 
-    DB = 0.08 #DA/4 
-    
+    DA = 0.16
+    DB = 0.08
+
     # define birth/death rates
-    f = 0.06 #1/25 
-    k = 0.062 #3/50 
-    
+    f = 0.06
+    k = 0.062
+
     # grid size
-    N = 256 # 128
-    
+    N = 128
+
     # update in time
-    delta_t = 1.0 #1.0/2
+    delta_t = 1.0
     # spatial step
-    dx = 1.0 #1.0 / N
-    
-    # intialize the chemical concentrations, random_incluence=0
-    A, B = get_initial_A_and_B(N, random_influence = 0.0)
-    A_record = A.copy()[None,...]
-    B_record = B.copy()[None,...]
-    
+    dx = 1.0
+
     N_simulation_steps = 15000
-    for step in range(N_simulation_steps):
-        # Runge-kutta scheme
-        #A, B = update(A, B, DA, DB, f, k, delta_t)
-        A, B = update_rk4(A, B, DA, DB, f, k, delta_t, dx)
+    record_interval = 5
+    N_records = N_simulation_steps // record_interval + 1
     
-        if step%5 ==0:
-            print(step)
-            A_record = np.concatenate((A_record, A[None,...]), axis=0)
-            B_record = np.concatenate((B_record, B[None,...]), axis=0)
+    # Generate 20 different initial conditions where each is a subset of [1,2,3,4,5,6]
+    init_dis_map = {
+        1: [1, 5], 2: [1, 3, 5], 3: [2, 3, 5], 4: [3, 5], 5: [4, 5], 6: [5],
+        7: [6, 4, 5], 8: [1, 4, 5], 9: [2, 4, 5], 10: [3, 4, 5], 11: [4, 5],
+        12: [6, 3, 5], 13: [1, 3, 4, 5], 14: [2, 3, 4, 5], 15: [3, 4, 5],
+        16: [6, 2, 5], 17: [1, 2, 5], 18: [2, 5], 19: [3, 2, 5], 20: [4, 2, 5]
+    }    
+
+    for IC, init_dis in init_dis_map.items():
+        A, B = get_initial_A_and_B(N, init_dis=init_dis,  random_influence=0.0)
+
+        save_path = f'2DGS_IC{IC}_2x{N_records}x{N}x{N}.mat'
+        
+        A_record = np.empty((N_records, N, N))
+        B_record = np.empty((N_records, N, N))
+        A_record[0] = A.copy()
+        B_record[0] = B.copy()
+
+        with tqdm(total=N_simulation_steps) as pbar:
+            for step in range(N_simulation_steps):
+                # Runge-kutta scheme
+                A, B = update_rk4(A, B, DA, DB, f, k, delta_t, dx)
+
+                if step % record_interval == 0:
+                    record_index = step // record_interval + 1
+                    A_record[record_index] = A.copy()
+                    B_record[record_index] = B.copy()
+
+                    pbar.set_description("record_index: %s" % (str(record_index)))
+
+                pbar.update(1)
+
+        A_record_shape = A_record.shape
+        B_record_shape = B_record.shape
+        
+        #np.save('A_record.npy', A_record)
+        #np.save('B_record.npy', B_record)
+        
+        #del A_record
+        #del B_record
+        
+        assert A_record_shape == B_record_shape
+
+        # Create a memory-mapped file
+        output_shape = (2, *A_record_shape)
+        #UV = np.memmap('output.npy', dtype=np.float32, mode='w+', shape=output_shape)
+        UV = np.empty(output_shape, dtype=np.float32)
+
+        # Load and copy A_record
+        #A_record = np.load('A_record.npy', mmap_mode='r')
+        UV[0] = A_record
+        #del A_record
+
+        # Load and copy B_record
+        #B_record = np.load('B_record.npy', mmap_mode='r')
+        UV[1] = B_record
+        #del B_record   
+        
+        scio.savemat(save_path, {'uv': UV})
+        
+        del UV
+        #os.remove('A_record.npy')
+        #os.remove('B_record.npy')
+        #os.remove('output.npy')
+        
+    # else:
+    #     data = scio.loadmat(save_path)
+    #     UV = data['uv']
+    #     del data
     
-    UV = np.concatenate((A_record[None,...], B_record[None,...]), axis=0)
-    save_path = './2DGS_IC1_2x3001x256x256.mat'
-    scio.savemat(save_path, {'uv': UV})
-    
-    # Plot the result
-    output = np.transpose(UV, [1, 0, 2, 3])
-    fig_save_path = './2DGS/'
-    for i in range(21):
-        postProcess(output, N, 0, N*dx, 0, N*dx, num=150*i, batch=1,save_path=fig_save_path)
-    
-    plt.figure()
-    plt.plot(UV[0, :, 50, 50], alpha=0.6, label='rk4, dt=1.0')
-    plt.legend()
-    # plt.show()
-    plt.savefig(fig_save_path + '/fig[x=50,y=50].png')
+    #Plot the result
+    # output = np.transpose(UV, [1, 0, 2, 3])
+    # fig_save_path = ''
+    # for i in range(21):
+    #     postProcess(output, N, 0, N*dx, 0, N*dx, num=150*i, batch=1,save_path=fig_save_path)
+
+    # plt.figure()
+    # plt.plot(UV[0, :, 50, 50], alpha=0.6, label='rk4, dt=1.0')
+    # plt.legend()
+    # # plt.show()
+    # plt.savefig(fig_save_path + 'fig[x=50,y=50].png')
 

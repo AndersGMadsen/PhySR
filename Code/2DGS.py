@@ -16,6 +16,8 @@ from torch.nn.utils import weight_norm
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
+device = torch.device("cuda")
+
 torch.manual_seed(1)
 np.random.seed(1)
 torch.set_default_dtype(torch.float32)
@@ -51,9 +53,9 @@ class ShiftMean(nn.Module):
 
     def forward(self, x, mode):
         if mode == 'sub':
-            return (x - self.mean.cuda()) / self.std.cuda()
+            return (x - self.mean.to(device)) / self.std.to(device)
         elif mode == 'add':
-            return x * self.std.cuda() + self.mean.cuda()
+            return x * self.std.to(device) + self.mean.to(device)
         else:
             raise NotImplementedError
 
@@ -99,7 +101,7 @@ class ConvLSTMCell(nn.Module):
         self.Wxo.bias.data.fill_(1.0)
 
     def forward(self, x, h, c):
-        
+            
         ci = torch.sigmoid(self.Wxi(x) + self.Whi(h))
         cf = torch.sigmoid(self.Wxf(x) + self.Whf(h))
         cc = cf * c + ci * torch.tanh(self.Wxc(x) + self.Whc(h))
@@ -110,7 +112,7 @@ class ConvLSTMCell(nn.Module):
 
     def init_hidden_tensor(self, prev_state):
 
-        return (Variable(prev_state[0]).cuda(), Variable(prev_state[1]).cuda())
+        return (Variable(prev_state[0]).to(device), Variable(prev_state[1]).to(device))
 
 
 class ResBlock(nn.Module):
@@ -238,7 +240,7 @@ class PhySR(nn.Module):
 
             # residual connection
             xt += s
-            xt = xt.view(1, 4, 2, 256, 256)
+            xt = xt.view(1, 2, 2, 128, 128)
             
             if step in self.effective_step:
                 outputs.append(xt)    
@@ -304,26 +306,26 @@ class LossGenerator(nn.Module):
             DerFilter = lapl_op,
             resol = (dx**2),
             kernel_size = 5,
-            name = 'laplace_operator').cuda()
+            name = 'laplace_operator').to(device)
 
         # forward/backward derivative operator 
         self.dt = Conv1dDerivative(
             DerFilter = [[[-1/2, 0, 1/2]]],
             resol = (dt),
             kernel_size = 3,
-            name = 'partial_t').cuda() 
+            name = 'partial_t').to(device) 
 
         self.fwd_dt = Conv1dDerivative(
             DerFilter = [[[-3/2, 2, -1/2]]],
             resol = (dt),
             kernel_size = 3,
-            name = 'forward_partial_t').cuda() 
+            name = 'forward_partial_t').to(device) 
  
         self.bwd_dt = Conv1dDerivative(
             DerFilter = [[[1/2, -2, 3/2]]],
             resol = (dt),
             kernel_size = 3,
-            name = 'backward_partial_t').cuda() 
+            name = 'backward_partial_t').to(device) 
 
     def GetPhyLoss(self, output):
         '''Calculate the physical loss'''
@@ -393,7 +395,7 @@ class LossGenerator(nn.Module):
     def GetModelLoss(self, model):
         ''' Get the L2-norm of the model '''
 
-        l2_reg = torch.tensor(0.).cuda()
+        l2_reg = torch.tensor(0.).to(device)
         for param in model.parameters():
             l2_reg += torch.norm(param)
 
@@ -413,8 +415,8 @@ def LossGen(output, truth, beta, loss_func):
     output = torch.cat((output[:, :, :, -2:, :], output, output[:, :, :, 0:3, :]), dim=3)
     
     f_u, f_v = loss_func.GetPhyLoss(output)
-    phy_loss = MSE_loss(f_u, torch.zeros_like(f_u).cuda()) + MSE_loss(
-                f_v, torch.zeros_like(f_v).cuda())
+    phy_loss = MSE_loss(f_u, torch.zeros_like(f_u).to(device)) + MSE_loss(
+                f_v, torch.zeros_like(f_v).to(device))
 
     loss = data_loss + beta * phy_loss 
 
@@ -439,13 +441,13 @@ def train(model, train_loader, val_loader, init_state, n_iters, lr, print_every,
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.998) 
     loss_function = LossGenerator(dt, dx)
-
+    
     for epoch in range(n_iters):
         for idx, (lres, hres) in enumerate(train_loader):
             
             optimizer.zero_grad()
 
-            lres, hres = lres.cuda(), hres.cuda() 
+            lres, hres = lres.to(device), hres.to(device) 
             lres, hres = lres.transpose(0,1), hres.transpose(0,1) # (b,t,c,h,w) -> (t,b,c,h,w)
             
             outputs = model(lres, init_state)
@@ -502,7 +504,7 @@ def validate(model, val_loader, init_state, loss_function, beta):
 
     for idx, (lres, hres) in enumerate(val_loader):
 
-        lres, hres = lres.cuda(), hres.cuda() 
+        lres, hres = lres.to(device), hres.to(device) 
         lres, hres = lres.transpose(0,1), hres.transpose(0,1) # (b,t,c,h,w) -> (t,b,c,h,w)
         outputs = model(lres, init_state)
  
@@ -512,7 +514,7 @@ def validate(model, val_loader, init_state, loss_function, beta):
         
         # calculate the error
         error = torch.sqrt(MSE_function(hres, outputs.detach()) / MSE_function(
-            hres, torch.zeros_like(hres).cuda()))
+            hres, torch.zeros_like(hres).to(device)))
         val_error += error.item()
 
     val_error = val_error / len(val_loader) 
@@ -532,13 +534,13 @@ def test(model, test_loader, init_state, save_path, fig_save_path):
 
     for idx, (lres, hres) in enumerate(test_loader):
 
-        lres, hres = lres.cuda(), hres.cuda() 
+        lres, hres = lres.to(device), hres.to(device) 
         lres, hres = lres.transpose(0,1), hres.transpose(0,1) # (b,t,c,h,w) -> (t,b,c,h,w)
         outputs = model(lres, init_state)
 
         # calculate the error
         error = torch.sqrt(MSE_function(hres, outputs.detach()) / MSE_function(
-            hres, torch.zeros_like(hres).cuda()))
+            hres, torch.zeros_like(hres).to(device)))
         pred_error += error.item()
 
         torch.save({"pred": outputs.detach().cpu(), "lres": lres.cpu(), 
@@ -608,8 +610,8 @@ class GSDataset(Dataset):
 
         for i in range(len(self.ICs)):     
             # define the data filename
-            lres_filename = self.data_fname + str(ICs[i]) + '_2x751x32x32.mat'
-            hres_filename = self.data_fname + str(ICs[i]) + '_2x3001x256x256.mat'
+            lres_filename = self.data_fname + str(ICs[i]) + '_2x751x16x16.mat'
+            hres_filename = self.data_fname + str(ICs[i]) + '_2x3001x128x128.mat'
 
             # load the lres and hres tensor, (c,t,h,w) -> (t,c,h,w)
             lres = scio.loadmat(os.path.join(data_dir, lres_filename))
@@ -684,18 +686,18 @@ def get_init_state(batch_size, hidden_channels, output_size, mode='coord'):
 
 if __name__ == '__main__':
     # define the data file path 
-    data_dir = './data/2DGS_256x256/'
-    data_fname = '2DGS_IC'
+    data_dir = ''
+    data_fname = '2DGS/2DGS_IC'
 
     # define the initial conditions    
-    ICs = np.arange(1,11)
+    ICs = np.arange(1, 21)
     data_loader = GSDataset(data_dir, data_fname, ICs)
     n_datasets = data_loader.__len__()
 
     # get mean and std
     data = data_loader[0][1]
-    total_hres = torch.zeros(40, data.shape[0], data.shape[1], data.shape[2], data.shape[3])
-    total_lres = torch.zeros(40, 25, 2, 32, 32) # [b,t,c,h,w]
+    total_hres = torch.zeros(len(data_loader), data_loader[0][1].shape[0],  data_loader[0][1].shape[1],  data_loader[0][1].shape[2],  data_loader[0][1].shape[3])
+    total_lres = torch.zeros(len(data_loader), data_loader[0][0].shape[0],  data_loader[0][0].shape[1],  data_loader[0][0].shape[2],  data_loader[0][0].shape[3]) # [b,t,c,h,w]
 
     for i in range(len(data_loader)):
         total_hres[i,...] = data_loader[i][1]
@@ -705,18 +707,19 @@ if __name__ == '__main__':
     std_hres = torch.std(total_hres, axis = (0,1,3,4))
 
     # split data
-    split_ratio = [int(n_datasets*0.7), int(n_datasets*0.2), int(n_datasets*0.1)]
+    split_ratio = [int(n_datasets*0.7), int(n_datasets*0.2), n_datasets - int(n_datasets*0.7) - int(n_datasets*0.2)]
+    
     train_data, val_data, test_data = torch.utils.data.random_split(data_loader, split_ratio)
     
     # change to pytorch data
     # data in train_loader is [b, t, c, h, w] -> [1, 151, 2, 32, 32]
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size = 4, 
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size = 2, 
         shuffle=True, num_workers=0) 
 
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size = 4, 
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size = 2, 
         shuffle=False, num_workers=0)    
 
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size = 4, 
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size = 2, 
         shuffle=False, num_workers=0)
 
     ######################### build model #############################
@@ -730,8 +733,8 @@ if __name__ == '__main__':
     effective_step = list(range(0, steps))
     
     beta = 0.025 # for physics loss        
-    save_path = './model/2DGS/'
-    fig_save_path = './figures/2DGS/'
+    save_path = ''
+    fig_save_path = ''
     print('Super-Resolution for 2D GS equation...')
 
     model = PhySR(
@@ -740,13 +743,13 @@ if __name__ == '__main__':
         upscale_factor = [4, 8], # [t_up, s_up]
         shift_mean_paras = [mean_hres, std_hres],  
         step = steps,
-        effective_step = effective_step).cuda()
+        effective_step = effective_step).to(device)
 
     # define the initial states and initial output for model
     init_state = get_init_state(
-        batch_size = [4], 
+        batch_size = [2], 
         hidden_channels = [64], 
-        output_size = [[32, 32]],
+        output_size = [[16, 16]],
         mode = 'random')
 
     start = time.time()

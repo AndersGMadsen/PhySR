@@ -14,16 +14,21 @@ if __name__ == '__main__':
     print('Downsample the high-res data of 2D GS...')
     print('Downsample size in time and space are: %d, %d' % (t_ds, s_ds))
     
-    # load data
-    data = scio.loadmat('./2DGS_IC1_2x3001x256x256.mat')
-    data = data['uv'] # [2,3001,256,256]       
-    print('hres shape: ', data.shape)
+    N = 128
+    N_records = 3001
     
-    ds = np.zeros([2,751,32,32])
-    for ii in range(ds.shape[1]):
-        ds[0,ii,:,:] = pt.blurDn(data[0,t_ds*ii,:,:], n_levels, filt='binom5')
-        ds[1,ii,:,:] = pt.blurDn(data[1,t_ds*ii,:,:], n_levels, filt='binom5')
-
-    print('lres shape: ', ds.shape)
-    scio.savemat('./2DGS_IC1_2x751x32x32.mat', {'uv': ds})  
+    for IC in range(1, 21):
+    
+        # load data
+        data = scio.loadmat(f'2DGS_IC{IC}_2x{N_records}x{N}x{N}.mat')
+        data = data['uv'] # [2,3001,256,256]       
+        print('hres shape: ', data.shape)
         
+        ds = np.zeros([2, N_records // t_ds + 1, N // s_ds, N // s_ds])
+        for ii in range(ds.shape[1]):
+            ds[0,ii,:,:] = pt.blurDn(data[0,t_ds*ii,:,:], n_levels, filt='binom5')
+            ds[1,ii,:,:] = pt.blurDn(data[1,t_ds*ii,:,:], n_levels, filt='binom5')
+
+        print('lres shape: ', ds.shape)
+        scio.savemat(f'2DGS_IC{IC}_2x{N_records // t_ds + 1}x{N // s_ds}x{N // s_ds}.mat', {'uv': ds})  
+            
