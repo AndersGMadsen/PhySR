@@ -162,7 +162,7 @@ class PhySR(nn.Module):
 
             # residual connection
             xt += s
-            xt = xt.view(1, 4, 2, 256, 256)
+            xt = xt.view(1, 2, 2, 128, 128)
             
             if step in self.effective_step:
                 outputs.append(xt)    
@@ -532,8 +532,8 @@ class GSDataset(Dataset):
 
         for i in range(len(self.ICs)):     
             # define the data filename
-            lres_filename = self.data_fname + str(ICs[i]) + '_2x751x32x32.mat'
-            hres_filename = self.data_fname + str(ICs[i]) + '_2x3001x256x256.mat'
+            lres_filename = self.data_fname + str(ICs[i]) + '_2x751x16x16.mat'
+            hres_filename = self.data_fname + str(ICs[i]) + '_2x3001x128x128.mat'
 
             # load the lres and hres tensor, (c,t,h,w) -> (t,c,h,w)
             lres = scio.loadmat(os.path.join(data_dir, lres_filename))
@@ -572,18 +572,18 @@ class GSDataset(Dataset):
 
 if __name__ == '__main__':
     # define the data file path 
-    data_dir = './data/2DGS_256x256/'
+    data_dir = '2DGS'
     data_fname = '2DGS_IC'
 
     # define the initial conditions    
-    ICs = np.arange(1,11)
+    ICs = np.arange(1,21)
     data_loader = GSDataset(data_dir, data_fname, ICs)
     n_datasets = data_loader.__len__()
 
     # get mean and std
     data = data_loader[0][1]
-    total_hres = torch.zeros(40, data.shape[0], data.shape[1], data.shape[2], data.shape[3])
-    total_lres = torch.zeros(40, 25, 2, 32, 32) # [b,t,c,h,w]
+    total_hres = torch.zeros(len(data_loader), data_loader[0][1].shape[0],  data_loader[0][1].shape[1],  data_loader[0][1].shape[2],  data_loader[0][1].shape[3])
+    total_lres = torch.zeros(len(data_loader), data_loader[0][0].shape[0],  data_loader[0][0].shape[1],  data_loader[0][0].shape[2],  data_loader[0][0].shape[3]) # [b,t,c,h,w]
 
     for i in range(len(data_loader)):
         total_hres[i,...] = data_loader[i][1]
@@ -593,18 +593,18 @@ if __name__ == '__main__':
     std_hres = torch.std(total_hres, axis = (0,1,3,4))
 
     # split data
-    split_ratio = [int(n_datasets*0.7), int(n_datasets*0.2), int(n_datasets*0.1)]
+    split_ratio = [int(n_datasets*0.7), int(n_datasets*0.2), n_datasets - int(n_datasets*0.7) - int(n_datasets*0.2)]
     train_data, val_data, test_data = torch.utils.data.random_split(data_loader, split_ratio)
     
     # change to pytorch data
     # data in train_loader is [b, t, c, h, w] -> [1, 151, 2, 32, 32]
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size = 4, 
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size = 2, 
         shuffle=True, num_workers=0) 
 
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size = 4, 
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size = 2, 
         shuffle=False, num_workers=0)    
 
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size = 4, 
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size = 2, 
         shuffle=False, num_workers=0)
 
     ######################### build model #############################
@@ -618,8 +618,8 @@ if __name__ == '__main__':
     effective_step = list(range(0, steps))
     
     beta = 0.025 # for physics loss        
-    save_path = './model/2DGS[no_convlstm]/'
-    fig_save_path = './figures/2DGS[no_convlstm]/'
+    save_path = ''
+    fig_save_path = ''
     print('Super-Resolution for 2D GS equation w/o convlstm...')
 
     model = PhySR(

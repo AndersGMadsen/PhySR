@@ -16,8 +16,8 @@ def frobenius_norm(tensor):
 
 if __name__ == '__main__':
     # load test data
-    data_dir = './model/2DGS/'
-    data = torch.load(data_dir + 'output_IC10.pt')
+    data_dir = ''
+    data = torch.load(data_dir + 'output_3.pt')
     lres = data['lres'].cuda() # [25,4,2,32,32], [t,b,c,h,w]
     hres = data['hres'] # [100,4,2,256,256]
     pred_physr = data['pred'].numpy()
