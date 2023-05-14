@@ -7,8 +7,8 @@ import pyrtools as pt
 if __name__ == '__main__':
 
     # downsample factors
-    s_ds, t_ds = 8, 4 
-    n_levels = 3
+    s_ds, t_ds = 4, 4 
+    n_levels = 2
     noise = 0.05
     
     print('Downsample the high-res data of 2D GS...')
@@ -20,7 +20,7 @@ if __name__ == '__main__':
     for IC in range(1, 21):
     
         # load data
-        data = scio.loadmat(f'2DGS_IC{IC}_2x{N_records}x{N}x{N}.mat')
+        data = scio.loadmat(f'2DGS/2DGS_IC{IC}_2x{N_records}x{N}x{N}.mat')
         data = data['uv'] # [2,3001,256,256]       
         print('hres shape: ', data.shape)
         

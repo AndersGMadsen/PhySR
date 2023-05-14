@@ -13,6 +13,7 @@ import scipy.io as scio
 import time
 import os
 from torch.nn.utils import weight_norm
+from tqdm import tqdm
 
 #os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -101,7 +102,6 @@ class ConvLSTMCell(nn.Module):
         self.Wxo.bias.data.fill_(1.0)
 
     def forward(self, x, h, c):
-            
         ci = torch.sigmoid(self.Wxi(x) + self.Whi(h))
         cf = torch.sigmoid(self.Wxf(x) + self.Whf(h))
         cc = cf * c + ci * torch.tanh(self.Wxc(x) + self.Whc(h))
@@ -442,56 +442,60 @@ def train(model, train_loader, val_loader, init_state, n_iters, lr, print_every,
     scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.998) 
     loss_function = LossGenerator(dt, dx)
     
-    for epoch in range(n_iters):
-        for idx, (lres, hres) in enumerate(train_loader):
-            
-            optimizer.zero_grad()
+    with tqdm(total=n_iters, desc='Epoch', leave=True, position=0) as pbar:
+        for epoch in range(n_iters):
+            for idx, (lres, hres) in enumerate(train_loader):
+                
+                optimizer.zero_grad()
 
-            lres, hres = lres.to(device), hres.to(device) 
-            lres, hres = lres.transpose(0,1), hres.transpose(0,1) # (b,t,c,h,w) -> (t,b,c,h,w)
-            
-            outputs = model(lres, init_state)
+                lres, hres = lres.to(device), hres.to(device) 
+                lres, hres = lres.transpose(0,1), hres.transpose(0,1) # (b,t,c,h,w) -> (t,b,c,h,w)
+                
+                outputs = model(lres, init_state)
 
-            # compute loss 
-            loss, data_loss, phy_loss = LossGen(outputs, hres, beta, loss_function)
-            loss.backward(retain_graph=True)
-            print_loss_total += loss.item()
+                # compute loss 
+                loss, data_loss, phy_loss = LossGen(outputs, hres, beta, loss_function)
+                loss.backward(retain_graph=True)
+                print_loss_total += loss.item()
 
-            # gradient clipping
-            nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
+                # gradient clipping
+                nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
 
-            optimizer.step()
-            scheduler.step()
+                optimizer.step()
+                scheduler.step()
 
-        if (epoch+1) % print_every == 0:
-            # calculate the average training loss
-            print_loss_mean = print_loss_total / (print_every*len(train_loader))
-            train_loss_list.append(print_loss_mean)
-            print_loss_total = 0
+            if (epoch+1) % print_every == 0:
+                # calculate the average training loss
+                print_loss_mean = print_loss_total / (print_every*len(train_loader))
+                train_loss_list.append(print_loss_mean)
+                print_loss_total = 0
 
-            # print the training loss
-            print('Train loss (%d/%d %d%%): %.8f'  % (epoch+1, n_iters, 
-                (epoch+1)/n_iters*100, print_loss_mean))
+                # print the training loss
+                #print('Train loss (%d/%d %d%%): %.8f'  % (epoch+1, n_iters, 
+                #    (epoch+1)/n_iters*100, print_loss_mean))
 
-            # for print training loss (details)
-            print('Epoch %d: data loss(%.8f), phy loss(%.8f)' %(
-                epoch+1, data_loss.item(), phy_loss.item()))
+                # for print training loss (details)
+                #print('Epoch %d: data loss(%.8f), phy loss(%.8f)' %(
+                #    epoch+1, data_loss.item(), phy_loss.item()))
 
-            # calculate the validation loss
-            val_loss, val_error = validate(model, val_loader, init_state, loss_function, beta)
+                # calculate the validation loss
+                val_loss, val_error = validate(model, val_loader, init_state, loss_function, beta)
 
-            # for print validation loss
-            print('Epoch (%d/%d %d%%): val loss %.8f, val error %.8f'  % (epoch+1, n_iters, 
-                (epoch+1)/n_iters*100, val_loss, val_error))
-            print('')
+                # for print validation loss
+                #print('Epoch (%d/%d %d%%): val loss %.8f, val error %.8f'  % (epoch+1, n_iters, 
+                #    (epoch+1)/n_iters*100, val_loss, val_error))
+                #print('')
+                
+                pbar.update(print_every)
+                pbar.set_postfix({'train_loss': print_loss_mean, 'val_loss': val_loss, 'val_error': val_error})
 
-            val_loss_list.append(val_loss)
-            val_error_list.append(val_error)
+                val_loss_list.append(val_loss)
+                val_error_list.append(val_error)
 
-            # save model
-            if val_error < best_error:
-                save_checkpoint(model, optimizer, scheduler, model_save_path)
-                best_error = val_error
+                # save model
+                if val_error < best_error:
+                    save_checkpoint(model, optimizer, scheduler, model_save_path)
+                    best_error = val_error
 
     return train_loss_list, val_loss_list, val_error_list
 
@@ -610,7 +614,7 @@ class GSDataset(Dataset):
 
         for i in range(len(self.ICs)):     
             # define the data filename
-            lres_filename = self.data_fname + str(ICs[i]) + '_2x751x16x16.mat'
+            lres_filename = self.data_fname + str(ICs[i]) + '_2x751x32x32.mat'
             hres_filename = self.data_fname + str(ICs[i]) + '_2x3001x128x128.mat'
 
             # load the lres and hres tensor, (c,t,h,w) -> (t,c,h,w)
@@ -740,7 +744,7 @@ if __name__ == '__main__':
     model = PhySR(
         n_feats = 64,
         n_layers = [1, 2], # [n_convlstm, n_resblock]
-        upscale_factor = [4, 8], # [t_up, s_up]
+        upscale_factor = [4, 4], # [t_up, s_up]
         shift_mean_paras = [mean_hres, std_hres],  
         step = steps,
         effective_step = effective_step).to(device)
@@ -749,7 +753,7 @@ if __name__ == '__main__':
     init_state = get_init_state(
         batch_size = [2], 
         hidden_channels = [64], 
-        output_size = [[16, 16]],
+        output_size = [[32, 32]],
         mode = 'random')
 
     start = time.time()

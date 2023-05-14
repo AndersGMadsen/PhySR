@@ -1,3 +1,5 @@
 2DGS
 *.png
 *.npy
+.ipynb_checkpoints
+Data
